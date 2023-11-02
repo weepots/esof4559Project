@@ -3,3 +3,7 @@ opencv-python
 numpy
 jupyter
 pillow
+pandas
+tabulate
+tqdm
+

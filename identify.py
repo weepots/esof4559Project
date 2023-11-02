@@ -1,62 +1,83 @@
 import face_recognition
-from PIL import Image, ImageDraw
+import os
+import PIL
+import pandas as pd
+from tabulate import tabulate
+import cv2
+import augmentor
+import tqdm
 
 
-image_of_bill = face_recognition.load_image_file('billGates1.png')
-bill_face_encoding = face_recognition.face_encodings(image_of_bill)[0]
+DATASET_LOCATION = './datasets'
+# image_adjustments = ['blur', 'exposure']
+image_adjustments = ['contrast']
+# image_adjustments = []
 
 
-image_of_steve = face_recognition.load_image_file('steveJobs.png')
-steve_face_encoding = face_recognition.face_encodings(image_of_steve)[0]
+def create_known_encodings(dataset_location):
+    dataset_location = './datasets'
+    people_list = [f for f in os.listdir(
+        dataset_location) if not f.startswith('.')]
+    people_dictionary = {}
+    for person in people_list:
+        people_dictionary[person] = None
+    for person in people_dictionary:
+        # Use first image of person as reference image
+        reference_image_name = person + '_0001.jpg'
+        reference_image_path = os.path.join(
+            dataset_location, person, reference_image_name)
+
+        # Show image
+        # reference_image = PIL.Image.open(reference_image_path)
+        # reference_image.show()
+
+        # load image, generate facial encodings and store as a variable
+        reference_image = face_recognition.load_image_file(
+            reference_image_path)
+        reference_image_face_encoding = face_recognition.face_encodings(
+            reference_image)
+        people_dictionary[person] = reference_image_face_encoding
+    return people_dictionary
 
 
-# create array of encodings and names
-known_face_encodings = [
-  bill_face_encoding,
-  steve_face_encoding
-]
-
-known_face_names = [
-  'Bill Gates',
-  'Steve Jobs'
-]
-
-test_image = face_recognition.load_image_file('bill_steve.png')
-
-# find faces in test image
-face_locations = face_recognition.face_locations(test_image)
-face_encodings = face_recognition.face_encodings(test_image, face_locations)
-
-#convert to PIL format
-pil_image = Image.fromarray(test_image)
+def matcher(test_image_face_encodings, person, people_dictionary):
+    for test_image_face_encoding in test_image_face_encodings:
+        matches = face_recognition.compare_faces(
+            people_dictionary[person], test_image_face_encoding)
+        if matches == None:
+            return False
+        if True in matches:
+            return True
+        else:
+            return False
 
 
-# Create image draw instance
-draw = ImageDraw.Draw(pil_image)
+people_dictionary = create_known_encodings(dataset_location=DATASET_LOCATION)
+test_results = pd.DataFrame(columns=['Image name', 'Detected'])
+runs_directory = './runs'
 
-# loop through faces in test image
-for(top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
-  matches = face_recognition.compare_faces(known_face_encodings, face_encoding )
-  name = "Unknown person"
+for person in tqdm.tqdm(people_dictionary):
+    person_pictures_path = os.path.join(DATASET_LOCATION, person)
+    person_pictures = os.listdir(person_pictures_path)
+    for person_picture in person_pictures:
+        test_image_path = os.path.join(
+            DATASET_LOCATION, person, person_picture)
+        test_image, changed_image_path = augmentor.augment(
+            changes=image_adjustments, input_image_path=test_image_path, image_name=person_picture, runs_directory='./runs')
+        test_image_face_encodings = face_recognition.face_encodings(test_image)
+        match_results = matcher(test_image_face_encodings,
+                                person, people_dictionary)
+        if not match_results:
+            cv2.imwrite(changed_image_path, test_image)
 
-  if True in matches:
-    first_match_index = matches.index(True)
-    name = known_face_names[first_match_index]
-  
-  # Draw box
-  draw.rectangle(((left,top), (right, bottom)), outline = (0,0,0))
-  
-  # Draw Label
-  _, _, text_width, text_height = draw.textbbox((0,0),text = name)
-  draw.rectangle (
-    (
-      (left, bottom - text_height - 10),
-      (right, bottom)
-    ),
-    fill = (0,0,0),
-    outline = (0,0,0)
-    )
-  draw.text((left+6, bottom-text_height - 5), name, fill=(255,255,255,255))
-del draw
-pil_image.show()
+        new_row = {'Image name': person_picture, 'Detected': match_results}
+        test_results.loc[len(test_results)] = new_row
 
+
+test_results_filter = test_results.loc[test_results['Detected'] != True]
+percentage_detected = (len(test_results) -
+                       len(test_results_filter)) / len(test_results)
+print(f'Total test results: {len(test_results)}')
+print(f'Failed to detect: {len(test_results_filter)}')
+print(f'Percentage Detected: {percentage_detected * 100}')
+print(tabulate(test_results_filter, headers='keys', tablefmt='psql'))

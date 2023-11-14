@@ -10,7 +10,7 @@ import tqdm
 
 DATASET_LOCATION = './datasets'
 # image_adjustments = ['blur', 'exposure']
-image_adjustments = ['contrast']
+image_adjustments = ['noise']
 # image_adjustments = []
 
 
@@ -54,21 +54,21 @@ def matcher(test_image_face_encodings, person, people_dictionary):
 
 people_dictionary = create_known_encodings(dataset_location=DATASET_LOCATION)
 test_results = pd.DataFrame(columns=['Image name', 'Detected'])
-runs_directory = './runs'
-
+augmentations = []
 for person in tqdm.tqdm(people_dictionary):
     person_pictures_path = os.path.join(DATASET_LOCATION, person)
     person_pictures = os.listdir(person_pictures_path)
     for person_picture in person_pictures:
         test_image_path = os.path.join(
             DATASET_LOCATION, person, person_picture)
-        test_image, changed_image_path = augmentor.augment(
-            changes=image_adjustments, input_image_path=test_image_path, image_name=person_picture, runs_directory='./runs')
+        test_image, changed_image_path, augmentations = augmentor.augment(
+            changes=image_adjustments, input_image_path=test_image_path, image_name=person_picture)
         test_image_face_encodings = face_recognition.face_encodings(test_image)
         match_results = matcher(test_image_face_encodings,
                                 person, people_dictionary)
-        if not match_results:
-            cv2.imwrite(changed_image_path, test_image)
+        cv2.imwrite(changed_image_path, test_image)
+        # if not match_results:
+        #     cv2.imwrite(changed_image_path, test_image)
 
         new_row = {'Image name': person_picture, 'Detected': match_results}
         test_results.loc[len(test_results)] = new_row
@@ -77,6 +77,8 @@ for person in tqdm.tqdm(people_dictionary):
 test_results_filter = test_results.loc[test_results['Detected'] != True]
 percentage_detected = (len(test_results) -
                        len(test_results_filter)) / len(test_results)
+print('Augmentations:')
+print(augmentations)
 print(f'Total test results: {len(test_results)}')
 print(f'Failed to detect: {len(test_results_filter)}')
 print(f'Percentage Detected: {percentage_detected * 100}')

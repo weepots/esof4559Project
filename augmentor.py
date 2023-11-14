@@ -28,13 +28,16 @@ def augment(changes, input_image_path, image_name):
             augmentations.append(
                 {"Exposure": f"Brightness Factor: {brightness_factor}"})
         if change == 'noise':
-            row, col, ch = changed_image.shape
+
             mean = 0
-            var = 0.1
+            var = 0.4
             sigma = var**0.5
-            gauss = np.random.normal(mean, sigma, (row, col, ch))
-            gauss = gauss.reshape(row, col, ch)
-            changed_image = changed_image + gauss
+            noise = np.random.normal(
+                mean, sigma, changed_image.shape).astype(np.uint8)
+            changed_image = cv2.add(changed_image, noise)
+            runs_directory += '_noise_' + str(var)
+            augmentations.append(
+                {"noise": f"var: {var}"})
         # if change == 'cut off half image':
     if not os.path.exists(runs_directory):
         os.mkdir(runs_directory)

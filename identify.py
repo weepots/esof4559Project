@@ -14,7 +14,6 @@ DATASET_LOCATION = './datasets'
 
 
 def create_known_encodings(dataset_location):
-    dataset_location = './datasets'
     people_list = [f for f in os.listdir(
         dataset_location) if not f.startswith('.')]
     people_dictionary = {}
@@ -239,7 +238,7 @@ def mass_test_blur_greedy():
 
 def mass_test_noise():
     noise_sigma_list = [0.3, 0.4, 0.5, 0.6]
-    enhancer_mb_kernel_list = [3, 5, 7, 9]  # 3
+    enhancer_mb_kernel_list = [3]  # 3
     augmentations = ['noise']
     test_results = pd.DataFrame(
         columns=['Noise Sigma', 'Median Blur Kernel', 'Failed Detections'])
@@ -250,11 +249,14 @@ def mass_test_noise():
                 executor.submit(
                     tester2,
                     blur_k_size=3,
+                    cont_alpha=1.0,
                     enhancer_um_gamma=0,
                     enhancer_um_k=3,
                     enhancer_um_kernel=3,
                     noise_sigma=noise_sigma,
                     enhancer_mb_kernel=enhancer_mb_kernel,
+                    enhancer_he_clip_limit=1,
+                    enhancer_he_tile_grid_size=1,
                     augmentations=augmentations
                 ): enhancer_mb_kernel for enhancer_mb_kernel in enhancer_mb_kernel_list
             }
@@ -266,67 +268,41 @@ def mass_test_noise():
     test_results.to_csv('test_results_noise.csv')
 
 
-def mass_test_noise():
-    cont_alpha_list = [0.1, 0.3, 0.5, 1.5, 2.0]
-    enhancer_he_clip_limit_list = [2, 3, 4, 5]  # 3
-    enhancer_he_tile_size_list = [3, 5, 7]
-    augmentations = ['noise']
+def mass_test_contrast():
+    cont_alpha_list = [0.1, 0.3, 0.5, 1, 1.5, 2]
+    enhancer_he_clip_limit_list = [0.5, 0.7, 1]  # 3
+    enhancer_he_tile_grid_size_list = [3, 5, 7, 9, 12]
+    augmentations = ['contrast']
     test_results = pd.DataFrame(
-        columns=['Noise Sigma', 'Median Blur Kernel', 'Failed Detections'])
+        columns=['Contrast Alpha', 'Histogram EQ Tile Size', 'Histogram EQ Clip Limit', 'Failed Detections'])
     counter = 0
-    for noise_sigma in noise_sigma_list:
-        with concurrent.futures.ProcessPoolExecutor(max_workers=10) as executor:
-            future_row = {
-                executor.submit(
-                    tester2,
-                    blur_k_size=3,
-                    enhancer_um_gamma=0,
-                    enhancer_um_k=3,
-                    enhancer_um_kernel=3,
-                    noise_sigma=noise_sigma,
-                    enhancer_mb_kernel=enhancer_mb_kernel,
-                    augmentations=augmentations
-                ): enhancer_mb_kernel for enhancer_mb_kernel in enhancer_mb_kernel_list
-            }
-            for future in concurrent.futures.as_completed(future_row):
-                new_row = future.result()
-                test_results.loc[len(test_results)] = new_row
-                counter += 1
-                print(counter, new_row)
-    test_results.to_csv('test_results_noise.csv')
+    for cont_alpha in cont_alpha_list:
+        for enhancer_he_clip_limit in enhancer_he_clip_limit_list:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=10) as executor:
+                future_row = {
+                    executor.submit(
+                        tester2,
+                        blur_k_size=3,
+                        cont_alpha=cont_alpha,
+                        noise_sigma=0.6,
+                        enhancer_um_k=3,
+                        enhancer_um_kernel=3,
+                        enhancer_um_gamma=0,
+                        enhancer_mb_kernel=3,
+                        enhancer_he_clip_limit=enhancer_he_clip_limit,
+                        enhancer_he_tile_grid_size=enhancer_he_tile_grid_size,
+                        augmentations=augmentations,
+                    ): enhancer_he_tile_grid_size for enhancer_he_tile_grid_size in enhancer_he_tile_grid_size_list
+                }
+                for future in concurrent.futures.as_completed(future_row):
+                    new_row = future.result()
+                    test_results.loc[len(test_results)] = new_row
+                    counter += 1
+                    print(counter, new_row)
+
+    test_results.to_csv('test_results_contrast.csv')
 
 
-# mass_test()
-
-# people_dictionary = create_known_encodings(dataset_location=DATASET_LOCATION)
-# test_results = pd.DataFrame(columns=['Image name', 'Detected'])
-# augmentations = []
-# for person in tqdm.tqdm(people_dictionary):
-#     person_pictures_path = os.path.join(DATASET_LOCATION, person)
-#     person_pictures = os.listdir(person_pictures_path)
-#     for person_picture in person_pictures:
-#         test_image_path = os.path.join(
-#             DATASET_LOCATION, person, person_picture)
-#         augmentor = Augmentor(augmentations_input=['blur'])
-#         augmentor.blur_k_size = 5
-#         test_image, changed_image_path, augmentations = augmentor.augment(
-#             input_image_path=test_image_path,
-#             image_name=person_picture
-#         )
-#         enhancer = Enhancer(enhancements=['sharpen'])
-#         enhancer.um_k = 6
-#         enhancer.um_kernel = 3
-#         enhancer.um_gamma = 5
-#         test_image = enhancer.enhance(image=test_image)
-#         test_image_face_encodings = face_recognition.face_encodings(
-#             test_image)
-#         match_results = matcher(test_image_face_encodings,
-#                                 person, people_dictionary)
-#         cv2.imwrite(changed_image_path, test_image)
-#         # if not match_results:
-#         #     cv2.imwrite(changed_image_path, test_image)
-#         new_row = {'Image name': person_picture, 'Detected': match_results}
-#         test_results.loc[len(test_results)] = new_row
 # test_results_filter = test_results.loc[test_results['Detected'] != True]
 # percentage_detected = (len(test_results) -
 #                        len(test_results_filter)) / len(test_results)
@@ -340,15 +316,16 @@ if __name__ == '__main__':
     # mass_test_blur_greedy()
     # print(tester2(9, 2, 3, 2, ['blur']))
     # mass_test_noise()
-    print(tester2(
-        noise_sigma=0.9,
-        enhancer_mb_kernel=3,
-        blur_k_size=3,
-        cont_alpha=0.1,
-        enhancer_um_gamma=0,
-        enhancer_um_k=3,
-        enhancer_um_kernel=3,
-        enhancer_he_tile_grid_size=3,
-        enhancer_he_clip_limit=2,
-        augmentations=['contrast']
-    ))
+    mass_test_contrast()
+    # print(tester2(
+    #     noise_sigma=0.9,
+    #     enhancer_mb_kernel=3,
+    #     blur_k_size=3,
+    #     cont_alpha=0.1,
+    #     enhancer_um_gamma=0,
+    #     enhancer_um_k=3,
+    #     enhancer_um_kernel=3,
+    #     enhancer_he_tile_grid_size=3,
+    #     enhancer_he_clip_limit=2,
+    #     augmentations=['contrast']
+    # ))

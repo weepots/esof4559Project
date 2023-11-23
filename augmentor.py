@@ -36,6 +36,8 @@ def augment(
         noise_sigma,
         exp_brightness_factor=1):
     changed_image = cv2.imread(input_image_path)
+    # changed_image = cv2.cvtColor(changed_image, cv2.COLOR_RGB2GRAY)
+    # changed_image = cv2.cvtColor(changed_image, cv2.COLOR_GRAY2RGB)
     augmentations_results = []
     runs_directory = './runs/run'
     for change in augmentations:

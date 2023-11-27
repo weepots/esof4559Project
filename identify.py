@@ -62,11 +62,13 @@ def per_person_test(
         enhancer_mb_kernel,
         enhancer_he_clip_limit,
         enhancer_he_tile_grid_size,
-        augmentations):
+        augmentations,
+        enhance_flag,
+        save_flag):
     person_pictures_path = os.path.join(DATASET_LOCATION, person)
     person_pictures = os.listdir(person_pictures_path)
     failed_detections = 0
-    save = True
+    failed_detection_enhanced = 0
     local_augmentations = augmentations
     for person_picture in person_pictures:
         test_image_path = os.path.join(
@@ -81,6 +83,7 @@ def per_person_test(
             noise_sigma=noise_sigma,
             # need to change this
         )
+
         enhancer = Enhancer()
         enhancer.um_k = enhancer_um_k
         enhancer.um_kernel = enhancer_um_kernel
@@ -90,11 +93,16 @@ def per_person_test(
         enhancer.he_tile_grid_size = enhancer_he_tile_grid_size
         enhanced_image = enhancer.enhance(
             image=augmented_image, enhancements=local_augmentations)
+
         test_image_face_encodings = face_recognition.face_encodings(
             enhanced_image)
+        test_image_face_encodings_unenhanced = face_recognition.face_encodings(
+            augmented_image)
         match_results = matcher(test_image_face_encodings,
                                 person, people_dictionary)
-        if save:
+        match_results_unenhanced = matcher(test_image_face_encodings_unenhanced,
+                                           person, people_dictionary)
+        if save_flag:
             path_elements = changed_image_path.split('/')
             enhanced_image_folder_path = f"./{path_elements[1]}/{path_elements[2]}/enhanced/"
             if not os.path.exists(enhanced_image_folder_path):
@@ -105,7 +113,10 @@ def per_person_test(
 
         if not match_results:
             failed_detections += 1
-    return failed_detections, person
+        if not match_results_unenhanced:
+            failed_detection_enhanced += 1
+
+    return failed_detections, failed_detection_enhanced, person
 
 
 def tester2(
@@ -118,15 +129,16 @@ def tester2(
         enhancer_mb_kernel,
         enhancer_he_clip_limit,
         enhancer_he_tile_grid_size,
-        augmentations
+        augmentations,
+        enhance_flag,
+        save_flag
 ):
     people_dictionary = create_known_encodings(
         dataset_location=DATASET_LOCATION)
-    failed_detections_list = []
+    # failed_detections_list = []
     failed_detections = 0
+    failed_detections_unenhanced = 0
     with concurrent.futures.ProcessPoolExecutor(max_workers=10) as executor:
-        failed_detections_list = []
-        failed_detections = 0
         future_person_failed_detections = {
             executor.submit(
                 per_person_test,
@@ -141,12 +153,15 @@ def tester2(
                 enhancer_mb_kernel,
                 enhancer_he_clip_limit,
                 enhancer_he_tile_grid_size,
-                augmentations
+                augmentations,
+                enhance_flag,
+                save_flag
             ): person for person in people_dictionary}
         for future in concurrent.futures.as_completed(future_person_failed_detections):
-            person_failed_detections, person = future.result()
+            person_failed_detections, person_failed_detections_unenhanced, person = future.result()
             failed_detections += person_failed_detections
-            failed_detections_list.append({person: person_failed_detections})
+            failed_detections_unenhanced += person_failed_detections_unenhanced
+            # failed_detections_list.append({person: person_failed_detections})
         executor.shutdown()
     # sequential
     # print(failed_detections_list)
@@ -175,20 +190,23 @@ def tester2(
         'Contrast Alpha': f'{cont_alpha}',
         'Histogram EQ Tile Size': f'{enhancer_he_tile_grid_size}',
         'Histogram EQ Clip Limit': f'{enhancer_he_clip_limit}',
-        'Failed Detections': f'{failed_detections}'
+        'Failed Detections': f'{failed_detections}',
+        'Failed Detections (Unenhanced)': f'{failed_detections_unenhanced}'
     }
-    filtered_row = {key: value for key, value in row.items() if (
-        value != '0' or key == 'Failed Detections')}
-    return filtered_row
+    # filtered_row = {key: value for key, value in row.items() if (
+    #     value != '0' or key == 'Failed Detections')}
+    return row
 
 
-def mass_test_blur_greedy():
+def mass_test_blur():
 
     blur_k_size_list = [5, 7, 9]
     enhancer_um_k_list = [3, 4, 5, 6, 7, 8]  # 4
     enhancer_um_kernel_list = [3]  # 3
     enhancer_um_gamma_list = [3, 4, 5, 6, 7, 8]  # 4
     augmentations = ['blur']
+    save_flag = True
+    enhance_flag = True
 
     test_results = pd.DataFrame(columns=['Blur kernel', 'Unsharp Mask K',
                                 'Unsharp Mask Kernel', 'Unsharp Mask gamma', 'Failed Detections'])
@@ -225,7 +243,9 @@ def mass_test_blur_greedy():
                             cont_alpha=1,  # set default values
                             enhancer_he_clip_limit=2.0,
                             enhancer_he_tile_grid_size=3,
-                            augmentations=augmentations
+                            augmentations=augmentations,
+                            enhance_flag=enhance_flag,
+                            save_flag=save_flag
                         ): enhancer_um_gamma for enhancer_um_gamma in enhancer_um_gamma_list}
                     for future in concurrent.futures.as_completed(future_row):
                         new_row = future.result()
@@ -240,6 +260,8 @@ def mass_test_noise():
     noise_sigma_list = [0.3, 0.4, 0.5, 0.6]
     enhancer_mb_kernel_list = [3]  # 3
     augmentations = ['noise']
+    enhance_flag = True
+    save_flag = True
     test_results = pd.DataFrame(
         columns=['Noise Sigma', 'Median Blur Kernel', 'Failed Detections'])
     counter = 0
@@ -257,7 +279,9 @@ def mass_test_noise():
                     enhancer_mb_kernel=enhancer_mb_kernel,
                     enhancer_he_clip_limit=1,
                     enhancer_he_tile_grid_size=1,
-                    augmentations=augmentations
+                    augmentations=augmentations,
+                    enhance_flag=enhance_flag,
+                    save_flag=save_flag,
                 ): enhancer_mb_kernel for enhancer_mb_kernel in enhancer_mb_kernel_list
             }
             for future in concurrent.futures.as_completed(future_row):
@@ -273,6 +297,8 @@ def mass_test_contrast():
     enhancer_he_clip_limit_list = [0.5, 0.7, 1]  # 3
     enhancer_he_tile_grid_size_list = [3, 5, 7, 9, 12]
     augmentations = ['contrast']
+    enhance_flag = True
+    save_flag = True
     test_results = pd.DataFrame(
         columns=['Contrast Alpha', 'Histogram EQ Tile Size', 'Histogram EQ Clip Limit', 'Failed Detections'])
     counter = 0
@@ -292,6 +318,8 @@ def mass_test_contrast():
                         enhancer_he_clip_limit=enhancer_he_clip_limit,
                         enhancer_he_tile_grid_size=enhancer_he_tile_grid_size,
                         augmentations=augmentations,
+                        enhance_flag=enhance_flag,
+                        save_flag=save_flag
                     ): enhancer_he_tile_grid_size for enhancer_he_tile_grid_size in enhancer_he_tile_grid_size_list
                 }
                 for future in concurrent.futures.as_completed(future_row):
@@ -312,11 +340,85 @@ def mass_test_contrast():
 # print(f'Failed to detect: {len(test_results_filter)}')
 # print(f'Percentage Detected: {percentage_detected * 100}')
 # print(tabulate(test_results_filter, headers='keys', tablefmt='psql'))
+
+
+def full_test():
+    # blur
+    blur_k_size_list = [3, 5, 7, 9]
+    # unsharp Mask ideal hyperparameters
+    enhancer_um_kernel = 3
+    enhancer_um_k = 4
+    enhancer_um_gamma = 4
+    # noise
+    noise_sigma_list = [0.3, 0.4, 0.5, 0.6]
+    # median blur ideal hyperparameters
+    enhancer_mb_kernel = 3
+    # contrast
+    cont_alpha_list = [0.1, 0.3, 0.5, 1, 1.5, 2]
+    # CLAHE ideal hyperparameters
+    enhancer_he_clip_limit = 1
+    enhancer_he_tile_grid_size = 7
+    # augmentations
+    augmentations = ['blur', 'noise', 'contrast']
+    # flags
+    enhance_flag = True
+    save_flag = False
+    test_results = pd.DataFrame(columns=[
+        'Blur kernel',
+        'Unsharp Mask K',
+        'Unsharp Mask Kernel',
+        'Unsharp Mask gamma',
+        'Noise Sigma',
+        'Median Blur Kernel',
+        'Contrast Alpha',
+        'Histogram EQ Tile Size',
+        'Histogram EQ Clip Limit',
+        'Failed Detections',
+        'Failed Detections (Unenhanced)'])
+    current_run = 0
+    for cont_alpha in cont_alpha_list:
+        for noise_sigma in noise_sigma_list:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=10) as executor:
+                future_row = {
+                    executor.submit(
+                        tester2,
+                        blur_k_size=blur_k_size,
+                        enhancer_um_k=enhancer_um_k,
+                        enhancer_um_kernel=enhancer_um_kernel,
+                        enhancer_um_gamma=enhancer_um_gamma,
+                        noise_sigma=noise_sigma,
+                        enhancer_mb_kernel=enhancer_mb_kernel,
+                        cont_alpha=cont_alpha,
+                        enhancer_he_clip_limit=enhancer_he_clip_limit,
+                        enhancer_he_tile_grid_size=enhancer_he_tile_grid_size,
+                        augmentations=augmentations,
+                        enhance_flag=enhance_flag,
+                        save_flag=save_flag
+                    ): blur_k_size for blur_k_size in blur_k_size_list}
+                for future in concurrent.futures.as_completed(future_row):
+                    new_row = future.result()
+                    test_results.loc[len(test_results)] = new_row
+                    current_run += 1
+                    print(current_run, new_row)
+
+    test_results.to_csv('test_results_total.csv')
+
+
 if __name__ == '__main__':
-    # mass_test_blur_greedy()
-    # print(tester2(9, 2, 3, 2, ['blur']))
+
+    # testing for optimal unsharp mask hyperparameters
+    # mass_test_blur()
+
+    # testing for optimal median blur hyper parameters
     # mass_test_noise()
-    mass_test_contrast()
+
+    # testing for optimal CLAHE hyper parameters
+    # mass_test_contrast()
+
+    # full test of combinations of augmentation parameters
+    full_test()
+
+    # individual hyperparameters test
     # print(tester2(
     #     noise_sigma=0.9,
     #     enhancer_mb_kernel=3,

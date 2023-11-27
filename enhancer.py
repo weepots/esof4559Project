@@ -77,6 +77,7 @@ class Enhancer():
                                 tileGridSize=tile_grid)
         img_output = clahe.apply(image)
         img_output = cv2.cvtColor(img_output, cv2.COLOR_GRAY2RGB)
+        # img_output = image
         return img_output
 
     def median_blur(self, image, kernel_size):
